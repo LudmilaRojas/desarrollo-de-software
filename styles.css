@@ -1111,3 +1111,123 @@ main, section, .container, .container-fluid {
 ::-webkit-scrollbar-track { background: var(--bg-deep); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ══════════════════════════════════════════
+   RBAC — Role Badges & Admin Panel
+   ══════════════════════════════════════════ */
+
+/* Badges de rol en navbar */
+.role-badge {
+  display: inline-block;
+  font-size: .65rem;
+  font-weight: 700;
+  padding: .15rem .45rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  vertical-align: middle;
+}
+.role-badge.admin   { background: #fbbf24; color: #000; }
+.role-badge.gestor  { background: #38bdf8; color: #000; }
+.role-badge.cliente { background: var(--border); color: var(--text-muted); }
+
+/* Botón de panel admin en navbar */
+.admin-nav-btn {
+  background: rgba(251,191,36,.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,.4);
+  border-radius: 6px;
+  padding: .4rem .9rem;
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s;
+  font-family: 'Rajdhani', sans-serif;
+  letter-spacing: .05em;
+}
+.admin-nav-btn:hover { background: rgba(251,191,36,.28); }
+
+/* Cards métricas */
+.admin-metrics {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.admin-metric-card {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  text-align: center;
+}
+.metric-value {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-word;
+}
+.metric-label {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-top: .25rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+/* Cards de sección admin */
+.admin-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+.admin-card-title {
+  color: var(--text-main);
+  margin-bottom: 1rem;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+/* Tabla admin */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .85rem;
+  color: var(--text-main);
+}
+.admin-table th {
+  background: var(--bg-deep);
+  color: var(--accent);
+  padding: .6rem .9rem;
+  text-align: left;
+  font-weight: 700;
+  font-family: 'Rajdhani', sans-serif;
+  letter-spacing: .05em;
+  border-bottom: 1px solid var(--border);
+}
+.admin-table td {
+  padding: .6rem .9rem;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  vertical-align: middle;
+}
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table tr:hover td { background: var(--bg-hover); }
+
+/* Select de cambio de rol */
+.admin-role-select {
+  background: var(--bg-deep);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: .3rem .6rem;
+  font-size: .8rem;
+  cursor: pointer;
+  outline: none;
+}
+.admin-role-select:focus { border-color: var(--accent); }
+.admin-role-select:disabled { opacity: .45; cursor: not-allowed; }
