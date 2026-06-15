@@ -71,6 +71,7 @@ class NexusDB {
         email         TEXT PRIMARY KEY,
         username      TEXT NOT NULL,
         password_hash TEXT NOT NULL,
+        role          TEXT NOT NULL DEFAULT 'cliente',
         created_at    INTEGER DEFAULT (strftime('%s','now'))
       );
 
@@ -90,8 +91,13 @@ class NexusDB {
         FOREIGN KEY(email) REFERENCES users(email)
       );
     `);
+    // Migración: agregar columna role si la tabla ya existía sin ella
+    try {
+      this.db.run("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'cliente'");
+    } catch (e) { /* ya existe — ignorar */ }
+
     this._persist();
-    console.log('✅ Tablas SQL listas: users, recovery_tokens, library');
+    console.log('✅ Tablas SQL listas: users, recovery_tokens, library (con RBAC)');
   }
 
   /** Guarda la DB serializada en localStorage */
@@ -123,10 +129,25 @@ class NexusDB {
     if (stmt.step()) {
       const row = stmt.getAsObject();
       stmt.free();
-      return { email: row.email, username: row.username, passwordHash: row.password_hash };
+      return { email: row.email, username: row.username, passwordHash: row.password_hash, role: row.role || 'cliente' };
     }
     stmt.free();
     return null;
+  }
+
+  /** Actualiza el rol de un usuario */
+  updateRole(email, role) {
+    this.db.run('UPDATE users SET role = ? WHERE email = ?', [role, email]);
+    this._persist();
+  }
+
+  /** Devuelve todos los usuarios (solo para admin) */
+  getAllUsers() {
+    const results = [];
+    const stmt = this.db.prepare('SELECT email, username, role, created_at FROM users ORDER BY created_at DESC');
+    while (stmt.step()) results.push(stmt.getAsObject());
+    stmt.free();
+    return results;
   }
 
   /** Actualiza el hash de contraseña de un usuario */
@@ -787,6 +808,11 @@ class AuthManager {
 
   // ── Helpers ───────────────────────────────
 
+  /** Devuelve true si el usuario logueado tiene el rol indicado */
+  hasRole(role) {
+    return this.currentUser?.role === role;
+  }
+
   _isValidEmail(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
@@ -1361,12 +1387,22 @@ function validateResetPasswordMatch() {
 function renderNavAuth() {
   const area = document.getElementById('authNavArea');
   if (auth.isLoggedIn()) {
+    const roleBadge = auth.hasRole('admin')
+      ? `<span class="role-badge admin">👑 Admin</span>`
+      : auth.hasRole('gestor')
+      ? `<span class="role-badge gestor">🛠 Gestor</span>`
+      : '';
+    const adminBtn = (auth.hasRole('admin') || auth.hasRole('gestor'))
+      ? `<button class="admin-nav-btn" onclick="switchView('admin')" title="Panel de administración">⚙ Panel</button>`
+      : '';
     area.innerHTML = `
       <div class="d-flex align-items-center gap-2">
         <div class="user-nav-btn">
           <span>👤</span>
           <span>${auth.currentUser.username}</span>
+          ${roleBadge}
         </div>
+        ${adminBtn}
         <button class="user-logout-btn" onclick="handleLogout()" title="Cerrar sesión">Cerrar sesión ⏻</button>
       </div>`;
   } else {
@@ -1534,7 +1570,7 @@ const auth    = new AuthManager();
 //  NAVEGACIÓN ENTRE VISTAS
 // ════════════════════════════════════════════
 
-/** Vista actual: 'store', 'library', 'community', 'news' */
+/** Vista actual: 'store', 'library', 'community', 'news', 'admin' */
 let currentView = 'store';
 
 /** Cambia entre vistas principales */
@@ -1544,6 +1580,7 @@ function switchView(view) {
   document.getElementById('librarySection').style.display = 'none';
   document.getElementById('communitySection').style.display = 'none';
   document.getElementById('newsSection').style.display = 'none';
+  document.getElementById('adminSection').style.display = 'none';
 
   // Actualizar nav links
   document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
@@ -1570,6 +1607,15 @@ function switchView(view) {
     case 'news':
       document.getElementById('newsSection').style.display = 'block';
       document.querySelectorAll('.navbar-nav .nav-link')[3].classList.add('active');
+      break;
+    case 'admin':
+      if (!auth.hasRole('admin') && !auth.hasRole('gestor')) {
+        showToast('⛔ Acceso denegado.');
+        switchView('store');
+        return;
+      }
+      document.getElementById('adminSection').style.display = 'block';
+      renderAdminPanel();
       break;
   }
 
@@ -1658,6 +1704,124 @@ function restoreLibraryBackup(email) {
 /** Muestra un alerta simple */
 function showAlert(message) {
   showToast(message);
+}
+
+// ════════════════════════════════════════════
+//  PANEL DE ADMINISTRACIÓN (RBAC)
+// ════════════════════════════════════════════
+
+/**
+ * Renderiza el panel de admin.
+ * Roles:  admin  → gestión de catálogo + usuarios + métricas
+ *         gestor → solo gestión de catálogo
+ */
+function renderAdminPanel() {
+  const isAdmin  = auth.hasRole('admin');
+  const isGestor = auth.hasRole('gestor');
+  if (!isAdmin && !isGestor) return;
+
+  // ── Métricas (solo admin) ─────────────────
+  const allUsers   = isAdmin ? nexusDB.getAllUsers() : [];
+  const totalUsers = allUsers.length;
+  const totalGames = games.length;
+
+  // Contar juegos en biblioteca por id (aproximación de "ventas")
+  let salesByGame = {};
+  if (isAdmin) {
+    try {
+      const stmt = nexusDB.db.prepare('SELECT game_id, COUNT(*) as total FROM library GROUP BY game_id ORDER BY total DESC');
+      while (stmt.step()) {
+        const r = stmt.getAsObject();
+        salesByGame[r.game_id] = r.total;
+      }
+      stmt.free();
+    } catch(e) {}
+  }
+  const topGameId = Object.keys(salesByGame).sort((a,b) => salesByGame[b]-salesByGame[a])[0];
+  const topGame   = topGameId ? games.find(g => g.id == topGameId) : null;
+
+  // ── Tabla de usuarios (solo admin) ────────
+  const usersTableHtml = isAdmin ? `
+    <div class="admin-card" style="margin-top:2rem;">
+      <h5 class="admin-card-title">👥 Usuarios Registrados</h5>
+      <div style="overflow-x:auto;">
+        <table class="admin-table">
+          <thead><tr><th>Email</th><th>Usuario</th><th>Rol</th><th>Acción</th></tr></thead>
+          <tbody>
+            ${allUsers.map(u => `
+              <tr>
+                <td>${u.email}</td>
+                <td>${u.username}</td>
+                <td><span class="role-badge ${u.role}">${u.role}</span></td>
+                <td>
+                  <select class="admin-role-select" onchange="adminChangeRole('${u.email}', this.value)" ${u.email === auth.currentUser.email ? 'disabled title="No podés cambiar tu propio rol"' : ''}>
+                    <option value="cliente"  ${u.role==='cliente'  ? 'selected':''}>cliente</option>
+                    <option value="gestor"   ${u.role==='gestor'   ? 'selected':''}>gestor</option>
+                    <option value="admin"    ${u.role==='admin'    ? 'selected':''}>admin</option>
+                  </select>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  // ── Tabla de catálogo ──────────────────────
+  const catalogTableHtml = `
+    <div class="admin-card" style="margin-top:2rem;">
+      <h5 class="admin-card-title">🎮 Catálogo de Juegos</h5>
+      <div style="overflow-x:auto;">
+        <table class="admin-table">
+          <thead><tr><th>Título</th><th>Precio</th><th>Tags</th>${isAdmin?'<th>Adquirido por</th>':''}</tr></thead>
+          <tbody>
+            ${games.map(g => `
+              <tr>
+                <td>${g.title}</td>
+                <td>${g.price === 0 ? '<span style="color:#4ade80">GRATIS</span>' : '$'+g.price.toFixed(2)}</td>
+                <td>${g.tags.join(', ')}</td>
+                ${isAdmin ? `<td>${salesByGame[g.id] || 0} usuario(s)</td>` : ''}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // ── Métricas cards (solo admin) ────────────
+  const metricsHtml = isAdmin ? `
+    <div class="admin-metrics">
+      <div class="admin-metric-card">
+        <div class="metric-value">${totalUsers}</div>
+        <div class="metric-label">Usuarios Registrados</div>
+      </div>
+      <div class="admin-metric-card">
+        <div class="metric-value">${totalGames}</div>
+        <div class="metric-label">Juegos en Catálogo</div>
+      </div>
+      <div class="admin-metric-card">
+        <div class="metric-value">${topGame ? topGame.title : '—'}</div>
+        <div class="metric-label">Juego más adquirido</div>
+      </div>
+    </div>` : '';
+
+  document.getElementById('adminContent').innerHTML = `
+    <div style="margin-bottom:1.5rem;">
+      <p style="color:var(--text-muted);margin:0;">
+        Acceso como <strong style="color:var(--accent);">${auth.currentUser.username}</strong>
+        — rol: <span class="role-badge ${auth.currentUser.role}">${auth.currentUser.role}</span>
+      </p>
+    </div>
+    ${metricsHtml}
+    ${usersTableHtml}
+    ${catalogTableHtml}
+  `;
+}
+
+/** Cambia el rol de un usuario (solo admin) */
+function adminChangeRole(email, newRole) {
+  if (!auth.hasRole('admin')) { showToast('⛔ Sin permisos.'); return; }
+  nexusDB.updateRole(email, newRole);
+  showToast(`✅ Rol de ${email} cambiado a "${newRole}"`);
+  renderAdminPanel();
 }
 
 // ════════════════════════════════════════════
