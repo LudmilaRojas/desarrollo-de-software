@@ -1459,10 +1459,26 @@ function checkout() {
     return;
   }
   if (!auth.isLoggedIn()) {
-    showToast('⚠️ Inicia sesión para poder pagar.');
+    showToast('⚠️ Inicia sesión para poder continuar.');
     openAuthModal('login');
     return;
   }
+
+  // Si todos los juegos son gratis, agregar directo a la biblioteca
+  if (cart.getTotal() === 0) {
+    cart.toggle();
+    showToast('⏳ Añadiendo juegos gratuitos...');
+    setTimeout(() => {
+      cart.items.forEach(game => addToLibrary(game.id));
+      const count = cart.getCount();
+      cart.clear();
+      cart.render();
+      catalog.render();
+      showToast(`🎮 ¡${count} juego${count > 1 ? 's' : ''} gratis añadido${count > 1 ? 's' : ''} a tu biblioteca!`);
+    }, 800);
+    return;
+  }
+
   openPaymentModal();
 }
 
@@ -1472,8 +1488,24 @@ function checkout() {
 // ════════════════════════════════════════════
 
 function openPaymentModal() {
-  const total = cart.getTotal().toFixed(2);
+  const paidItems = cart.items.filter(g => g.price > 0);
+  const total = paidItems.reduce((sum, g) => sum + g.price, 0).toFixed(2);
+  const freeCount = cart.items.length - paidItems.length;
+
   document.getElementById('paymentAmount').textContent = '$' + total;
+
+  // Aviso si hay juegos gratis mezclados con pagos
+  let freeNote = document.getElementById('paymentFreeNote');
+  if (!freeNote) {
+    freeNote = document.createElement('p');
+    freeNote.id = 'paymentFreeNote';
+    freeNote.style.cssText = 'color:#4ade80;font-size:.8rem;margin:.5rem 0 0;text-align:center;';
+    document.getElementById('paymentAmount').parentElement.appendChild(freeNote);
+  }
+  freeNote.textContent = freeCount > 0
+    ? `(${freeCount} juego${freeCount > 1 ? 's' : ''} gratis incluido${freeCount > 1 ? 's' : ''})`
+    : '';
+
   document.getElementById('paymentOverlay').classList.add('open');
   document.getElementById('paymentModal').classList.add('open');
   updateCardFormVisibility();
